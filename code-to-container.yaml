@@ -1,0 +1,88 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-volume1
+spec:
+  resources:
+    requests:
+      storage: 128Mi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-volume2
+spec:
+  resources:
+    requests:
+      storage: 128Mi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: code-to-container
+spec:
+  workspaces:
+  - name: gitrepos 
+  - name: config
+  - name: quay-secret
+  tasks:
+  - name: clone-repo
+    taskRef:
+      name: clone-repo
+    workspaces:
+    - name: gitrepos
+      workspace: gitrepos
+    - name: config
+      workspace: config
+    params:
+    - name: url_configmapkey
+      value: "https://github.com/panbalag/pipeline.git"
+    - name: deleteExisting
+      value: "true"
+  - name: bootstrap-build-push
+    taskRef:
+      name: bootstrap-build-push
+    runAfter:
+    - clone-repo
+    workspaces:
+    - name: gitrepos
+      workspace: gitrepos
+    - name: config
+      workspace: config
+    - name: pushsecret
+      workspace: quay-secret
+    params:
+    - name: TLSVERIFY
+      value: "false"
+    - name: BUILDER_IMAGE
+      value: "seldonio/seldon-core-s2i-python36:0.18"
+    - name: TAG
+      value: "latest"
+    - name: OUTPUT_IMAGE
+      value: "image-registry.openshift-image-registry.svc:5000/pipelines-demo/mymodel"
+---
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  generateName: code-to-container-run
+spec:
+  pipelineRef:
+    name: code-to-container
+  workspaces:
+  - name: gitrepos
+    persistentVolumeClaim:
+      claimName: my-volume1
+  - name: config
+    persistentVolumeClaim:
+      claimName: my-volume2
+  - name: quay-secret
+    secret:
+      secretName: quay-build-secret
+

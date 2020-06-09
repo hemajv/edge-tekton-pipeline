@@ -1,0 +1,82 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: bootstrap-build-push
+spec:
+  workspaces:
+  - name: gitrepos
+    description: The git repo will be cloned onto the volume backing this workspace
+  - name: config
+    description: Directory to store generated docker files
+  - name: pushsecret
+  results:
+  - name: image
+    description: The image+tag that was created
+  params:
+  - name: BUILDER_IMAGE
+    description: The location of the s2i builder image.
+    type: string
+  - name: PATH_CONTEXT
+    default: .
+    description: The location of the path to run s2i from.
+    type: string
+  - name: TLSVERIFY
+    default: "true"
+    description: Verify the TLS on the registry endpoint (for push/pull to a non-TLS registry)
+    type: string
+  - name: LOGLEVEL
+    default: "0"
+    description: Log level when running the S2I binary
+    type: string
+  - name: subdirectory
+    default: "dev"
+    description: subdirectory in the gitrepos workspace where the dev repo has been cloned to
+    type: string
+  - name: OUTPUT_IMAGE
+    type: string
+  - name: TAG
+    default: latest 
+    type: string
+  - name: CHAINED_BUILD_DOCKERFILE
+    default: "" 
+    description: If a chained build is to be executed, the second part of the DOCKERFILE
+    type: string
+  steps:
+  - name: bootstrap-directory
+    image: quay.io/openshift-pipeline/s2i
+    script: |
+      CHECKOUT_DIR="$(workspaces.gitrepos.path)"
+      DOCKER_DIR="$(workspaces.config.path)"
+      ls $CHECKOUT_DIR
+      ls $DOCKER_DIR
+      s2i build $CHECKOUT_DIR $(params.BUILDER_IMAGE) --image-scripts-url image:///s2i/bin/ --assemble-user root --assemble-runtime-user root --as-dockerfile $DOCKER_DIR/Dockerfile.gen
+      cat $DOCKER_DIR/Dockerfile.gen
+    workingDir: $(workspaces.gitrepos.path)/$(params.subdirectory)
+  - name: build-image
+    image: quay.io/buildah/stable:latest
+    script: |
+      buildah bud --tls-verify=$(params.TLSVERIFY) --layers -f $DOCKER_DIR/Dockerfile.gen -t $(params.OUTPUT_IMAGE) .
+    resources: {}
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - mountPath: /var/lib/containers
+      name: varlibcontainers
+    workingDir: $(workspaces.config.path)
+  - name: push-container-to-registry
+    image: quay.io/buildah/stable:latest
+    script: |
+      buildah images
+      buildah push --authfile=$(workspaces.pushsecret.path)/.dockerconfigjson --tls-verify=$(params.TLSVERIFY) $(params.OUTPUT_IMAGE) docker://quay.io/opendatahub/mymodel:$(params.TAG)
+      #buildah push --creds='panbalag:cGFuYmFsYWc6RGk1YjVzZTIh' $(params.OUTPUT_IMAGE) docker://panbalag/mymodel:$(params.TAG)
+      echo -n "$(params.OUTPUT_IMAGE):$(params.TAG)" >$(results.image.path)
+    resources: {}
+    securityContext:
+      privileged: true
+    volumeMounts:
+    - mountPath: /var/lib/containers
+      name: varlibcontainers
+    workingDir: $(workspaces.config.path)
+  volumes:
+  - emptyDir: {}
+    name: varlibcontainers

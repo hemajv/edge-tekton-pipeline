@@ -1,0 +1,45 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: clone-repo
+spec:
+  workspaces:
+  - name: gitrepos
+    description: The git repo will be cloned onto the volume backing this workspace
+  - name: config
+    description: configmap contents
+  params:
+  - name: url_configmapkey
+    description: git url to clone
+    type: string
+  - name: deleteExisting
+    description: clean out the contents of the repo's destination directory (if it already exists) before trying to clone the repo there
+    type: string
+    default: "false"
+  steps:
+  - name: clone
+    image: gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/git-init:v0.11.0
+    script: |
+      CHECKOUT_DIR="$(workspaces.gitrepos.path)"
+
+      cleandir() {
+        # Delete any existing contents of the repo directory if it exists.
+        #
+        # We don't just "rm -rf $CHECKOUT_DIR" because $CHECKOUT_DIR might be "/"
+        # or the root of a mounted volume.
+        if [[ -d "$CHECKOUT_DIR" ]] ; then
+          # Delete non-hidden files and directories
+          rm -rf "$CHECKOUT_DIR"/*
+          # Delete files and directories starting with . but excluding ..
+          rm -rf "$CHECKOUT_DIR"/.[!.]*
+          # Delete files and directories starting with .. plus any other character
+          rm -rf "$CHECKOUT_DIR"/..?*
+        fi
+      }
+
+      if [[ "$(params.deleteExisting)" == "true" ]] ; then
+        cleandir
+      fi
+
+      git clone $(params.url_configmapkey) $CHECKOUT_DIR
+

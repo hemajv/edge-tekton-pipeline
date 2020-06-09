@@ -68,7 +68,6 @@ spec:
     script: |
       buildah images
       buildah push --authfile=$(workspaces.pushsecret.path)/.dockerconfigjson --tls-verify=$(params.TLSVERIFY) $(params.OUTPUT_IMAGE) docker://quay.io/opendatahub/mymodel:$(params.TAG)
-      #buildah push --creds='panbalag:cGFuYmFsYWc6RGk1YjVzZTIh' $(params.OUTPUT_IMAGE) docker://panbalag/mymodel:$(params.TAG)
       echo -n "$(params.OUTPUT_IMAGE):$(params.TAG)" >$(results.image.path)
     resources: {}
     securityContext:
